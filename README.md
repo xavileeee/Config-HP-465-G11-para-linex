@@ -1,5 +1,10 @@
 # HP465 G11 / Puppet Sync Scripts
 
+> Importante sobre credenciales: si no se modifica nada en los scripts, no hay persistencia de credenciales en el cliente.
+> En el modo interactivo por defecto, las contraseñas y datos sensibles que se piden por pantalla se usan solo durante esa ejecucion y no se guardan en disco ni quedan almacenados de forma persistente.
+> Solo pasan a persistirse si alguien edita manualmente la seccion `[00] PARÁMETROS GLOBALES` y deja valores fijos dentro del script.
+> Recomendacion: si vas a usar `sinc_puppet`, conviene configurar antes el modulo Puppet en el servidor para que el propio script de configuracion inicial deje instalado `sinc_puppet` durante la ejecucion del `puppet agent`.
+
 Este repositorio contiene dos tipos de artefactos:
 
 1. **Scripts de configuración inicial** para equipos HP ProBook 465 G11 con Xubuntu 24.04 / Linex.
@@ -99,8 +104,15 @@ El script `sinc_puppet.sh` (contenido en `files/sinc_puppet.sh`) realiza estas a
 Coloca el módulo en el servidor Puppet en:
 
 ```
+/etc/puppetlabs/code/environments/production/modules/
+```
+
+De forma que la carpeta quede así:
+
+```
 /etc/puppetlabs/code/environments/production/modules/javi_sinc_puppet/
 ```
+
 
 > **Nota:** el módulo debe tener la estructura estándar de Puppet (manifests/, files/, etc.).
 
@@ -124,6 +136,8 @@ Esto hará que, al ejecutar Puppet en los clientes, se despliegue y ejecute el s
 
 El script `sinc_puppet.sh` **pide por defecto** los datos de conexión al servidor Puppet (host SSH y contraseña). Puedes mantenerlo tal cual y responder a esas preguntas en tiempo de ejecución.
 
+> En ese modo por defecto, las credenciales introducidas no se almacenan en el cliente: se usan durante la ejecucion y no se persisten salvo que el script se edite manualmente para fijarlas.
+
 Si prefieres no introducir datos interactivos, **puedes preconfigurar las variables** en la sección `[00] PARÁMETROS GLOBALES` del script; sin embargo, **no se recomienda** porque implica almacenar credenciales en el cliente.
 
 #### Riesgos de preconfigurar credenciales en el script
@@ -137,13 +151,9 @@ Si prefieres no introducir datos interactivos, **puedes preconfigurar las variab
 Variables principales que puedes ajustar en `files/sinc_puppet.sh` (si decides hacerlo):
 
 ```bash
-PUPPETSERVER_FQDN="puppetinstituto"
-PUPPET_CA_SSH=true
 PUPPET_SSH_HOST="servidor.saenzdeburuaga"    # host donde está el puppetserver
-PUPPET_SSH_USER="root"
 PUPPET_SSH_PASS="MiPssw0rdSeguro"            # contraseña de root del servidor
 ```
-
 > Nota: Si no configuras estas variables y optas por la ejecución interactiva, el script te pedirá los valores al arrancar.
 
 ---
