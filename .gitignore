@@ -1,0 +1,6 @@
+# Local-only config (do not upload)
+config_hp465g11_local.sh
+scan_hp465g11_ssh.py
+__pycache__/
+sinc_puppet_local.sh
+.venv/
