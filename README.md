@@ -8,7 +8,7 @@
 
 > **Solo pasan a persistirse** si alguien edita manualmente la seccion `[00] PARÁMETROS GLOBALES` y deja valores fijos dentro del script.
 
-> **Recomendacion:** si vas a usar `sinc_puppet`, conviene **configurar antes el modulo Puppet en el servidor** para que el propio script de configuracion inicial deje instalado `sinc_puppet` durante la ejecucion del `puppet agent`.
+> **Recomendacion:** si vas a usar `sinc_puppet`, conviene **configurar antes el modulo Puppet en el servidor** para que el propio script de configuracion inicial deje instalado `sinc_puppet` durante la ejecucion del `sinc_puppet.sh`.
 
 Este repositorio contiene dos tipos de artefactos:
 
@@ -132,14 +132,15 @@ En el módulo que configura tus equipos (por ejemplo `especifica_xubuntu2404`), 
 Ejemplo:
 
 ```puppet
+# Clase para la instalacion de sinc_puppet.sh en los clientes
 include javi_sinc_puppet
 ```
 
-Esto hará que, al ejecutar Puppet en los clientes, se despliegue y ejecute el script `sinc_puppet.sh`.
+Esto hará que, al ejecutar Puppet en los clientes, se despliegue y se instale el script `sinc_puppet.sh`.
 
 ### Configuración obligatoria previa (opcional y con riesgos)
 
-El script `sinc_puppet.sh` **pide por defecto** los datos de conexión al servidor Puppet (host SSH y contraseña). Puedes mantenerlo tal cual y responder a esas preguntas en tiempo de ejecución.
+El script `sinc_puppet.sh` **pide por defecto** los datos de conexión al servidor Puppet (host SSH y contraseña). 
 
 > **Nota importante:** en ese modo por defecto, las credenciales introducidas **no se almacenan en el cliente**: se usan durante la ejecucion y no se persisten salvo que el script se edite manualmente para fijarlas.
 
@@ -159,6 +160,6 @@ Variables principales que puedes ajustar en `files/sinc_puppet.sh` (si decides h
 PUPPET_SSH_HOST="servidor.saenzdeburuaga"    # host donde está el puppetserver
 PUPPET_SSH_PASS="MiPssw0rdSeguro"            # contraseña de root del servidor
 ```
-> **Nota:** si no configuras estas variables y optas por la ejecución interactiva, el script te pedirá los valores al arrancar.
+> **Nota:** si no pre-configuras estas variables y optas por la ejecución interactiva, el script te pedirá los valores al arrancar.
 
 ---
