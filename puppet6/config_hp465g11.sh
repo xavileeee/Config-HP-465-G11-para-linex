@@ -97,6 +97,57 @@ get_mac_file(){ local i="$1"; [ -e "/sys/class/net/${i}/address" ] && cat "/sys/
 get_ipv4_of(){ ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1; }
 file_contains(){ [[ -f "$1" ]] && grep -qE "$2" "$1"; }
 
+normalize_home_dir_path(){
+  local p="${1:-}"
+  p="${p%/}"
+  case "$p" in
+    /var/home/*) echo "/home/${p#/var/home/}" ;;
+    /var7home/*) echo "/home/${p#/var7home/}" ;;
+    /va7home/*) echo "/home/${p#/va7home/}" ;;
+    *) echo "$p" ;;
+  esac
+}
+
+get_user_home_dir(){
+  local u="$1" passwd_home="" normalized_home="" cand=""
+  passwd_home="$(getent passwd "$u" | awk -F: '{print $6}' 2>/dev/null || true)"
+  normalized_home="$(normalize_home_dir_path "$passwd_home")"
+
+  for cand in "$passwd_home" "$normalized_home" "/home/${u}" "/var/home/${u}"; do
+    [ -n "${cand:-}" ] || continue
+    if [ -d "$cand" ]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+
+  if [ -n "$normalized_home" ]; then
+    echo "$normalized_home"
+  elif [ -n "$passwd_home" ]; then
+    echo "$passwd_home"
+  else
+    echo "/home/${u}"
+  fi
+}
+
+repair_user_home_if_needed(){
+  local u="$1" passwd_home="" normalized_home=""
+  passwd_home="$(getent passwd "$u" | awk -F: '{print $6}' 2>/dev/null || true)"
+  [ -n "$passwd_home" ] || return 0
+
+  normalized_home="$(normalize_home_dir_path "$passwd_home")"
+  [ -n "$normalized_home" ] || return 0
+  [ "$normalized_home" != "$passwd_home" ] || return 0
+
+  info "Corrigiendo home de ${u} en /etc/passwd: ${passwd_home} -> ${normalized_home}"
+  ensure_dir "$(dirname "$normalized_home")" 755 root:root
+  if [ -d "$passwd_home" ] && [ ! -e "$normalized_home" ]; then
+    usermod -d "$normalized_home" -m "$u" 2>/dev/null || warn "No se pudo mover home de ${u} a ${normalized_home}"
+  else
+    usermod -d "$normalized_home" "$u" 2>/dev/null || warn "No se pudo actualizar home de ${u} a ${normalized_home}"
+  fi
+}
+
 ssh_run(){
   sshpass -p "$PUPPET_SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
     "${PUPPET_SSH_USER}@${PUPPET_SSH_HOST}" "$1"
@@ -167,6 +218,9 @@ fi
 echo "root:${ROOT_PW}" | chpasswd
 id "${LINUX_USER}" &>/dev/null || useradd -m -s /bin/bash "${LINUX_USER}"
 echo "${LINUX_USER}:${LINUX_PW}" | chpasswd
+repair_user_home_if_needed "${LINUX_USER}"
+LINEX_HOME="$(get_user_home_dir "${LINUX_USER}")"
+info "Home detectado para ${LINUX_USER}: ${LINEX_HOME}"
 ok "Usuarios root/linex configurados."
 
 deluser "${LINUX_USER}" sudo 2>/dev/null || gpasswd -d "${LINUX_USER}" sudo 2>/dev/null || true
@@ -286,14 +340,14 @@ fi
 ### =============================
 ### [17] XFCE → /etc/skel
 if $COPY_XFCE_PROFILE_FROM_LINEX_TO_SKEL; then
-  if [[ -d /home/${LINUX_USER}/.config/xfce4 ]]; then
+  if [[ -d "${LINEX_HOME}/.config/xfce4" ]]; then
     ensure_dir /etc/skel/.config 755 root:root
     rm -rf /etc/skel/.config/xfce4
-    cp -a /home/${LINUX_USER}/.config/xfce4 /etc/skel/.config/
+    cp -a "${LINEX_HOME}/.config/xfce4" /etc/skel/.config/
     chown -R root:root /etc/skel/.config
     ok "Perfil XFCE copiado a /etc/skel"
   else
-    ok "Perfil XFCE no existe en /home/${LINUX_USER}; nada que copiar"
+    ok "Perfil XFCE no existe en ${LINEX_HOME}; nada que copiar"
   fi
 else
   ok "Copia de perfil XFCE omitida"
@@ -348,7 +402,7 @@ fi
 _fix_firefox_launcher_for_user() {
   local U="$1"
   local HOME_DIR
-  HOME_DIR="$(getent passwd "$U" | awk -F: '{print $6}')" || return 0
+  HOME_DIR="$(get_user_home_dir "$U")"
   [ -d "$HOME_DIR/.config/xfce4/panel" ] || return 0
 
   # Borrar entradas obsoletas (snap/BAMF) de los launchers del panel
@@ -406,12 +460,12 @@ ok "Lanzador XFCE de Firefox reparado (panel, navegador por defecto y skel). Se 
 
 ### =============================
 ### [20.1] Reparar lanzador de Firefox para usuarios locales
-PANEL_SRC_DIR="/home/${LINUX_USER}/.config/xfce4/panel"
-PANEL_SRC_XML="/home/${LINUX_USER}/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
+PANEL_SRC_DIR="${LINEX_HOME}/.config/xfce4/panel"
+PANEL_SRC_XML="${LINEX_HOME}/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
 
 fix_firefox_user() {
   local U="$1" HOME_DIR
-  HOME_DIR="$(getent passwd "$U" | awk -F: '{print $6}')" || return 0
+  HOME_DIR="$(get_user_home_dir "$U")"
   [ -d "$HOME_DIR" ] || return 0
   [ -f /usr/share/applications/firefox.desktop ] || return 0
 
@@ -467,7 +521,7 @@ ok "Lanzador de Firefox reparado para usuarios locales."
 ### [XFCE] Clonar panel de 'linex' a 'root'
 info "Clonando configuración de panel XFCE desde 'linex' hacia 'root'…"
 
-SRC_HOME="/home/linex"
+SRC_HOME="${LINEX_HOME}"
 SRC_DIR="${SRC_HOME}/.config/xfce4"
 DST_DIR="/root/.config/xfce4"
 
@@ -488,11 +542,15 @@ else
   mkdir -p "${DST_DIR}"
   rsync -a --delete "${SRC_DIR}/" "${DST_DIR}/"
 
-  # 4) Reescribir rutas absolutas /home/linex -> /root dentro del perfil
+  # 4) Reescribir rutas absolutas del perfil de linex -> /root dentro del perfil
   #    (lançadores .desktop, configuraciones del panel, etc.)
   if command -v sed >/dev/null 2>&1; then
     find "${DST_DIR}" -maxdepth 4 -type f -print0 \
-      | xargs -0 sed -ri 's#/home/linex#\/root#g' || true
+      | xargs -0 sed -ri \
+          -e "s#/home/${LINUX_USER}#/root#g" \
+          -e "s#/var/home/${LINUX_USER}#/root#g" \
+          -e "s#/var7home/${LINUX_USER}#/root#g" \
+          -e "s#/va7home/${LINUX_USER}#/root#g" || true
   fi
 
   # 5) Propiedad/permiso correctos para root
