@@ -2,7 +2,7 @@
 # =============================================================================
 #  CONFIGURACIÓN HP ProBook 465 G11 — Xubuntu 24.04 / Linex Cole 2025
 #  Autoría: Javier Alfonso de las Heras & Gemini & Cracks del grupo adminies
-#  Versión: v2.5 (Robust Edition, nueva versión) · Fecha: 11/03/26
+#  Versión: v2.6 (Robust Edition + hardening de homes) · Fecha: 24/03/26
 #  Requiere Puppet 6 (o similar)
 #
 #  Funcionalidades
@@ -56,6 +56,7 @@ read -s -p "🔐 Introduce contraseña SSH para ${PUPPET_SSH_USER}@${PUPPET_SSH_
 
 CREATE_ESC_20=true
 RUN_PUPPET_AGENT=true
+HARDEN_EXISTING_HOMES_PERMS=true
 
 FIX_PKG_SYNC=true
 PKGSYNC_VER="2.57-1"
@@ -96,6 +97,50 @@ ensure_dir(){ mkdir -p "$1"; chmod "${2:-755}" "$1"; chown ${3:-root:root} "$1";
 get_mac_file(){ local i="$1"; [ -e "/sys/class/net/${i}/address" ] && cat "/sys/class/net/${i}/address"; }
 get_ipv4_of(){ ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1; }
 file_contains(){ [[ -f "$1" ]] && grep -qE "$2" "$1"; }
+
+enforce_pam_mkhomedir_umask(){
+  local pam_file="/etc/pam.d/common-session"
+  local desired_line="session optional        pam_mkhomedir.so umask=0027 skel=/etc/skel"
+
+  if [ ! -f "$pam_file" ]; then
+    warn "No existe ${pam_file}; se omite ajuste de pam_mkhomedir"
+    return 0
+  fi
+
+  if grep -qE '^[[:space:]]*session[[:space:]]+optional[[:space:]]+pam_mkhomedir\.so' "$pam_file"; then
+    sed -ri 's|^[[:space:]]*session[[:space:]]+optional[[:space:]]+pam_mkhomedir\.so.*$|session optional        pam_mkhomedir.so umask=0027 skel=/etc/skel|' "$pam_file"
+  else
+    printf '\n%s\n' "$desired_line" >> "$pam_file"
+  fi
+
+  info "Ajustado pam_mkhomedir con umask=0027 en ${pam_file}"
+}
+
+harden_existing_homes_permissions(){
+  local user uid home shell desktop_dir
+
+  while IFS=: read -r user _ uid _ _ home shell; do
+    [ "${uid}" -ge 1000 ] || continue
+    [ "${uid}" -eq 65534 ] && continue
+    case "${shell}" in
+      */false|*/nologin) continue ;;
+    esac
+
+    home="$(normalize_home_dir_path "$home")"
+    [ -d "$home" ] || continue
+
+    chown "$user:$user" "$home" 2>/dev/null || warn "No se pudo ajustar propietario de ${home}"
+    chmod 700 "$home" 2>/dev/null || warn "No se pudo aplicar chmod 700 a ${home}"
+
+    for desktop_dir in "$home/Desktop" "$home/Escritorio"; do
+      [ -d "$desktop_dir" ] || continue
+      chown -R "$user:$user" "$desktop_dir" 2>/dev/null || warn "No se pudo ajustar propietario en ${desktop_dir}"
+      chmod -R go-rwx "$desktop_dir" 2>/dev/null || warn "No se pudieron restringir permisos en ${desktop_dir}"
+    done
+  done < <(getent passwd)
+
+  info "Permisos de homes existentes endurecidos (home=700 y Desktop/Escritorio sin acceso de grupo/otros)"
+}
 
 normalize_home_dir_path(){
   local p="${1:-}"
@@ -158,7 +203,7 @@ trap 'err "Fallo en línea $LINENO: $BASH_COMMAND"' ERR
 ### =============================
 ### [02] INICIO
 ### =============================
-info "Iniciando configuración HP 465 G11 (v2.5)..."
+info "Iniciando configuración HP 465 G11 (v2.6)..."
 
 if grep -q "SECLEVEL=2" /etc/ssl/openssl.cnf; then
     sed -i 's/SECLEVEL=2/SECLEVEL=1/g' /etc/ssl/openssl.cnf
@@ -221,6 +266,9 @@ echo "${LINUX_USER}:${LINUX_PW}" | chpasswd
 repair_user_home_if_needed "${LINUX_USER}"
 LINEX_HOME="$(get_user_home_dir "${LINUX_USER}")"
 info "Home detectado para ${LINUX_USER}: ${LINEX_HOME}"
+if $HARDEN_EXISTING_HOMES_PERMS; then
+  harden_existing_homes_permissions
+fi
 ok "Usuarios root/linex configurados."
 
 deluser "${LINUX_USER}" sudo 2>/dev/null || gpasswd -d "${LINUX_USER}" sudo 2>/dev/null || true
@@ -229,6 +277,7 @@ deluser "${LINUX_USER}" sudo 2>/dev/null || gpasswd -d "${LINUX_USER}" sudo 2>/d
 ### [06] Cliente LDAP
 ### =============================
 DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall linex-config-ldapclient || true
+enforce_pam_mkhomedir_umask
 ok "Cliente LDAP configurado."
 
 ### =============================
