@@ -20,6 +20,12 @@
 #  ─ Reparar lanzadores de Firefox en XFCE (panel/skel/usuario)
 #  ─ Clonar panel XFCE de linex a root
 #  ─ Perfil Wi‑Fi EDUCAREX (NetworkManager)
+#  ─ **Seguridad y hardening**:
+#       · Directorios LDAP/PKI (/etc/ldap/ssl, /etc/pkgsync)
+#       · X11 tap-to-click en lightdm
+#       · Protección EFI: evita que Windows arranque solo
+#       · Ocultar particiones en el escritorio (udev rules)
+#       · Restricción de red por polkit (solo admin puede cambiar red)
 #
 #  Uso: sudo -i && bash /root/config_hp465g11.sh
 # =============================================================================
@@ -85,7 +91,7 @@ exec > >(tee -a "$LOG") 2>&1
 ### =============================
 ### [01] UTILIDADES COMUNES
 ### =============================
-TOTAL_STEPS=16
+TOTAL_STEPS=21
 STEP=0
 
 ts(){ date +'%F %T'; }
@@ -274,11 +280,82 @@ ok "Usuarios root/linex configurados."
 deluser "${LINUX_USER}" sudo 2>/dev/null || gpasswd -d "${LINUX_USER}" sudo 2>/dev/null || true
 
 ### =============================
+### [05.1] Configuración X11: tap-to-click en lightdm
+### =============================
+ensure_dir /etc/X11/xorg.conf.d 755 root:root
+cat >/etc/X11/xorg.conf.d/40-libinput.conf <<'__X11__'
+Section "InputClass"
+    Identifier "libinput touchpad catchall"
+    MatchIsTouchpad "on"
+    MatchDevicePath "/dev/input/event*"
+    Driver "libinput"
+    Option "Tapping" "on"
+EndSection
+__X11__
+ok "Tap-to-click configurado en X11 (lightdm + sesión)."
+
+### =============================
+### [05.2] Protección EFI: evitar que Windows arranque solo
+### =============================
+if [ -f /etc/default/grub ] && [ -d /boot/efi ]; then
+  mount /dev/nvme0n1p1 /mnt 2>/dev/null || true
+  if [ -d /mnt/EFI/Microsoft/Boot ] && [ ! -f /root/bootmgfw.efi.ORIGINAL ]; then
+    cp /mnt/EFI/Microsoft/Boot/bootmgfw.efi /root/bootmgfw.efi.ORIGINAL 2>/dev/null || true
+    if [ -d /mnt/EFI/ubuntu ]; then
+      cp /mnt/EFI/ubuntu/* /mnt/EFI/Microsoft/Boot/ 2>/dev/null || true
+      cp /mnt/EFI/ubuntu/shimx64.efi /mnt/EFI/Microsoft/Boot/bootmgfw.efi 2>/dev/null || true
+      ok "Protección EFI aplicada: Windows no puede arrancar solo."
+    fi
+  fi
+  umount /mnt 2>/dev/null || true
+else
+  info "Protección EFI omitida (no es UEFI o no está disponible)."
+fi
+
+### =============================
 ### [06] Cliente LDAP
 ### =============================
 DEBIAN_FRONTEND=noninteractive apt-get install -y --reinstall linex-config-ldapclient || true
 enforce_pam_mkhomedir_umask
 ok "Cliente LDAP configurado."
+
+### =============================
+### [06.1] Directorios LDAP/PKI
+### =============================
+ensure_dir /etc/ldap/ssl 755 root:root
+ensure_dir /etc/pkgsync 755 root:root
+ok "Directorios LDAP y pkgsync creados."
+
+### =============================
+### [06.2] Ocultar particiones en el escritorio (udev rules)
+### =============================
+cat >/etc/udev/rules.d/99-hide-disks.rules <<'__UDEV__'
+ENV{ID_FS_UUID}=="48BCD16FBCD15850",ENV{UDISKS_IGNORE}="1",ENV{UDISKS_PRESENTATION_HIDE}="1"
+ENV{ID_FS_UUID}=="0AD1-1C9C",ENV{UDISKS_IGNORE}="1",ENV{UDISKS_PRESENTATION_HIDE}="1"
+__UDEV__
+chmod 644 /etc/udev/rules.d/99-hide-disks.rules
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger 2>/dev/null || true
+ok "Reglas udev para ocultar particiones aplicadas."
+
+### =============================
+### [06.3] Restricción de red por polkit (evitar desactivación)
+### =============================
+ensure_dir /etc/polkit-1/rules.d 755 root:root
+cat >/etc/polkit-1/rules.d/99-network-restriction.rules <<'__POLKIT__'
+polkit.addRule(function(action, subject) {
+  if ((action.id == "org.freedesktop.NetworkManager.network-control" ||
+       action.id == "org.freedesktop.NetworkManager.enable-disable-network" ||
+       action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+       action.id == "org.freedesktop.NetworkManager.enable-disable-wwan") &&
+      subject.user != "root") {
+    return polkit.Result.AUTH_ADMIN;
+  }
+});
+__POLKIT__
+chown polkitd:polkitd /etc/polkit-1/rules.d/99-network-restriction.rules 2>/dev/null || true
+chmod 644 /etc/polkit-1/rules.d/99-network-restriction.rules
+ok "Restricción de red (polkit) aplicada: solo admin puede cambiar red."
 
 ### =============================
 ### [07] /etc/hosts → puppetinstituto
