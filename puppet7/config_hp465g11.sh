@@ -21,7 +21,6 @@
 #  ─ **Seguridad y hardening**:
 #       · Directorios LDAP/PKI (/etc/ldap/ssl, /etc/pkgsync)
 #       · X11 tap-to-click en lightdm
-#       · Protección EFI: evita que Windows arranque solo
 #       · Ocultar particiones en el escritorio (udev rules)
 #       · Restricción de red por polkit (solo admin puede cambiar red)
 #  ─ Informe final de red y estado Puppet
@@ -62,7 +61,7 @@ PKGSYNC_VER="2.57-1"
 PKGSYNC_URL="https://github.com/algodelinux/pkgsync/releases/download/v2.57-1/pkgsync_2.57-1_all.deb"
 
 SET_GRUB_TIMEOUT=true
-GRUB_TIMEOUT_VALUE="1"
+GRUB_TIMEOUT_VALUE="3"
 
 COPY_XFCE_PROFILE_FROM_LINEX_TO_SKEL=true
 DISABLE_XFCE_SCREENSAVER=true
@@ -281,24 +280,6 @@ Section "InputClass"
 EndSection
 __X11__
 ok "Tap-to-click configurado en X11 (lightdm + sesión)."
-
-### =============================
-### [05.2] Protección EFI: evitar que Windows arranque solo
-### =============================
-if [ -f /etc/default/grub ] && [ -d /boot/efi ]; then
-  mount /dev/nvme0n1p1 /mnt 2>/dev/null || true
-  if [ -d /mnt/EFI/Microsoft/Boot ] && [ ! -f /root/bootmgfw.efi.ORIGINAL ]; then
-    cp /mnt/EFI/Microsoft/Boot/bootmgfw.efi /root/bootmgfw.efi.ORIGINAL 2>/dev/null || true
-    if [ -d /mnt/EFI/ubuntu ]; then
-      cp /mnt/EFI/ubuntu/* /mnt/EFI/Microsoft/Boot/ 2>/dev/null || true
-      cp /mnt/EFI/ubuntu/shimx64.efi /mnt/EFI/Microsoft/Boot/bootmgfw.efi 2>/dev/null || true
-      ok "Protección EFI aplicada: Windows no puede arrancar solo."
-    fi
-  fi
-  umount /mnt 2>/dev/null || true
-else
-  info "Protección EFI omitida (no es UEFI o no está disponible)."
-fi
 
 ### =============================
 ### [06] Cliente LDAP

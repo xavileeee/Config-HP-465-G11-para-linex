@@ -28,7 +28,7 @@ La carpeta raíz contiene los scripts `config_hp465g11.sh` (en las subcarpetas `
 - Prepara Puppet (wrapper, facts, sanea `puppet.conf`, instala dependencias).
 - Genera el fichero `/etc/escuela2.0` con datos del entorno (Ubuntu 24.04, portátil, etc.).
 - Descarga/instala herramientas auxiliares (pkgsync, etc.).
-- Ajusta valores de GRUB, XFCE, salvapantallas y Wi‑Fi EDUCAREX (configuración interactiva).
+- Ajusta valores de GRUB (dejando intacto el cargador de arranque de Windows para permitir dual-boot), XFCE, salvapantallas y Wi‑Fi EDUCAREX (configuración interactiva).
 - Ejecuta `puppet agent` al final (según configuración).
 
 ### Uso
